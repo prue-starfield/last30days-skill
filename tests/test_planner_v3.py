@@ -178,6 +178,49 @@ class PlannerV3Tests(unittest.TestCase):
             "default",
         )
         self.assertEqual("emerging_use", plan.intent)
+        self.assertEqual({"reddit", "x", "github", "youtube", "hackernews", "grounding"}, set(plan.source_weights))
+        self.assertIn("reddit", plan.subqueries[0].sources)
+        self.assertIn("x", plan.subqueries[0].sources)
+        self.assertNotIn("tiktok", plan.subqueries[0].sources)
+        self.assertNotIn("instagram", plan.subqueries[0].sources)
+
+    def test_emerging_use_rewrites_search_query_to_concrete_real_world_terms(self):
+        rewritten = planner._rewrite_emerging_use_search_query(
+            "how people have been using Gemma 4 in novel ways",
+            "Developer implementations",
+        )
+        self.assertIn("Gemma 4", rewritten)
+        self.assertIn("use cases", rewritten)
+        self.assertIn("workflows", rewritten)
+        self.assertNotIn("creative applications", rewritten)
+
+    def test_emerging_use_sanitize_rewrites_abstract_llm_search_query(self):
+        raw = {
+            "intent": "emerging_use",
+            "freshness_mode": "balanced_recent",
+            "cluster_mode": "story",
+            "source_weights": {"reddit": 0.5, "x": 0.5},
+            "subqueries": [
+                {
+                    "label": "Community discussions",
+                    "search_query": "Gemma4 creative applications experiments",
+                    "ranking_query": "How are people using Gemma 4 in novel ways?",
+                    "sources": ["reddit", "x"],
+                    "weight": 1.0,
+                }
+            ],
+        }
+        plan = planner._sanitize_plan(
+            raw,
+            "how people have been using Gemma 4 in novel ways",
+            ["reddit", "x", "youtube", "github", "hackernews"],
+            None,
+            "default",
+        )
+        self.assertIn("Gemma 4", plan.subqueries[0].search_query)
+        self.assertIn("use cases", plan.subqueries[0].search_query)
+        self.assertIn('"in the wild"', plan.subqueries[0].search_query)
+        self.assertNotIn("creative applications", plan.subqueries[0].search_query)
         sources = set(plan.subqueries[0].sources)
         self.assertIn("reddit", sources)
         self.assertIn("x", sources)
@@ -185,6 +228,32 @@ class PlannerV3Tests(unittest.TestCase):
         self.assertIn("hackernews", plan.source_weights)
         self.assertNotIn("tiktok", plan.source_weights)
         self.assertNotIn("instagram", plan.source_weights)
+
+    def test_emerging_use_forces_balanced_recent_and_story_cluster(self):
+        raw = {
+            "intent": "emerging_use",
+            "freshness_mode": "strict_recent",
+            "cluster_mode": "workflow",
+            "source_weights": {"reddit": 1.0},
+            "subqueries": [
+                {
+                    "label": "primary",
+                    "search_query": "Gemma 4 use cases",
+                    "ranking_query": "How are people using Gemma 4 in practice?",
+                    "sources": ["reddit"],
+                    "weight": 1.0,
+                }
+            ],
+        }
+        plan = planner._sanitize_plan(
+            raw,
+            "how people have been using Gemma 4 in novel ways",
+            ["reddit", "x", "youtube"],
+            None,
+            "default",
+        )
+        self.assertEqual("balanced_recent", plan.freshness_mode)
+        self.assertEqual("story", plan.cluster_mode)
 
     def test_factual_plan_has_at_most_2_subqueries(self):
         plan = planner.plan_query(

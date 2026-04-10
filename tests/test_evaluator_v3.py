@@ -288,25 +288,34 @@ class EvaluatorV3Tests(unittest.TestCase):
         self.assertTrue(any("judged-good technical results" in error for error in errors))
 
     def test_create_eval_env_and_run_last30days(self):
-        with mock.patch.object(evaluator.envlib, "get_config", return_value={"OPENAI_API_KEY": "config-openai"}):
+        with mock.patch.object(
+            evaluator.envlib,
+            "get_config",
+            return_value={"OPENAI_API_KEY": "config-openai", "BRAVE_API_KEY": "config-brave"},
+        ):
             with mock.patch.dict(
                 "os.environ",
                 {
                     "PATH": "/bin",
+                    "HOME": "/tmp/home",
                     "GOOGLE_API_KEY": "env-google",
+                    "LAST30DAYS_CONFIG_DIR": "/tmp/last30days-config",
                     "OPENAI_API_KEY": "",
                     "GEMINI_API_KEY": "",
                     "GOOGLE_GENAI_API_KEY": "",
+                    "BRAVE_API_KEY": "",
                 },
                 clear=False,
             ):
-                for key in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENAI_API_KEY"):
+                for key in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENAI_API_KEY", "BRAVE_API_KEY"):
                     os.environ.pop(key, None)
                 created = evaluator.create_eval_env()
         self.assertEqual("/bin", created["PATH"])
+        self.assertEqual("/tmp/home", created["HOME"])
         self.assertEqual("env-google", created["GOOGLE_API_KEY"])
         self.assertEqual("config-openai", created["OPENAI_API_KEY"])
-        self.assertEqual("", created["LAST30DAYS_CONFIG_DIR"])
+        self.assertEqual("config-brave", created["BRAVE_API_KEY"])
+        self.assertEqual("/tmp/last30days-config", created["LAST30DAYS_CONFIG_DIR"])
 
         with mock.patch.object(evaluator.subprocess, "run", return_value=mock.Mock(returncode=0, stdout='{"topic":"x"}', stderr="")):
             payload = evaluator.run_last30days(

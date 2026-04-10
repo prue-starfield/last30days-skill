@@ -410,16 +410,24 @@ def create_eval_env() -> dict[str, str]:
         "LANG": os.environ.get("LANG", "en_US.UTF-8"),
         "LC_ALL": os.environ.get("LC_ALL", ""),
         "TMPDIR": os.environ.get("TMPDIR", ""),
+        "HOME": os.environ.get("HOME", str(Path.home())),
         "PYTHONUTF8": "1",
-        "LAST30DAYS_CONFIG_DIR": "",
     }
+    config_dir = os.environ.get("LAST30DAYS_CONFIG_DIR")
+    if config_dir is not None:
+        passthrough["LAST30DAYS_CONFIG_DIR"] = config_dir
     for key in (
         "GOOGLE_API_KEY",
         "GEMINI_API_KEY",
         "GOOGLE_GENAI_API_KEY",
         "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
         "XAI_API_KEY",
         "SCRAPECREATORS_API_KEY",
+        "BRAVE_API_KEY",
+        "EXA_API_KEY",
+        "SERPER_API_KEY",
+        "PARALLEL_API_KEY",
         "BSKY_HANDLE",
         "BSKY_APP_PASSWORD",
         "TRUTHSOCIAL_TOKEN",

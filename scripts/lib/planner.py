@@ -219,13 +219,15 @@ def _sanitize_plan(
             sources = [source for source in sources if source in requested]
         if not sources:
             sources = list(source_weights)
+        label = str(subquery.get("label") or f"q{index}").strip() or f"q{index}"
         search_query = str(subquery.get("search_query") or "").strip()
+        search_query = _rewrite_search_query(intent_hint, topic, search_query, label)
         ranking_query = str(subquery.get("ranking_query") or "").strip()
         if not search_query or not ranking_query:
             continue
         subqueries.append(
             schema.SubQuery(
-                label=str(subquery.get("label") or f"q{index}").strip() or f"q{index}",
+                label=label,
                 search_query=search_query,
                 ranking_query=ranking_query,
                 sources=sources,
@@ -241,8 +243,12 @@ def _sanitize_plan(
     freshness_mode = str(raw.get("freshness_mode") or _default_freshness(intent)).strip()
     if intent == "how_to":
         freshness_mode = "evergreen_ok"
+    elif intent == "emerging_use":
+        freshness_mode = _default_freshness(intent)
     cluster_mode = str(raw.get("cluster_mode") or _default_cluster_mode(intent)).strip()
-    if cluster_mode not in ALLOWED_CLUSTER_MODES:
+    if intent == "emerging_use":
+        cluster_mode = _default_cluster_mode(intent)
+    elif cluster_mode not in ALLOWED_CLUSTER_MODES:
         cluster_mode = _default_cluster_mode(intent)
 
     return schema.QueryPlan(
@@ -344,7 +350,7 @@ def _fallback_plan(
     allowed_sources = requested_sources or available_sources
     source_weights = _default_source_weights(intent, allowed_sources)
     core = query.extract_core_subject(topic, max_words=6, strip_suffixes=True)
-    base_search = _keyword_query(topic, core)
+    base_search = _keyword_query(topic, core, intent=intent)
     base_ranking = _ranking_query(topic, core)
 
     subqueries = [schema.SubQuery(
@@ -487,7 +493,49 @@ def _default_source_weights(intent: str, sources: list[str]) -> dict[str, float]
     return base
 
 
-def _keyword_query(topic: str, core: str) -> str:
+def _extract_emerging_use_subject(topic: str) -> str:
+    patterns = [
+        r"how (?:people|developers|teams|users) (?:have been |are )?using\s+(.+?)(?:\s+in\s+(?:novel ways|the wild))?$",
+        r"what are people doing with\s+(.+?)$",
+        r"(.+?)\s+use cases$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, topic, re.I)
+        if match:
+            subject = match.group(1).strip(" \t\r\n?.,:;!()[]{}\"'")
+            if subject:
+                return subject
+    compounds = [term.strip() for term in query.extract_compound_terms(topic) if term.strip()]
+    if compounds:
+        return compounds[0]
+    core = query.extract_core_subject(topic, max_words=4, strip_suffixes=True).strip(" \t\r\n?.,:;!()[]{}\"'")
+    if core:
+        return core
+    return topic.strip(" \t\r\n?.,:;!()[]{}\"'")
+
+
+def _rewrite_emerging_use_search_query(topic: str, label: str) -> str:
+    subject = _extract_emerging_use_subject(topic)
+    quoted_subject = f'"{subject}"' if " " in subject else subject
+    label_text = label.lower()
+    if any(token in label_text for token in {"developer", "implementation", "engineering", "workflow", "build"}):
+        suffix = ["developer", "use cases", "workflows", "experiments", "benchmarks"]
+    elif any(token in label_text for token in {"community", "discussion", "adoption", "usage"}):
+        suffix = ["use cases", "\"in the wild\"", "examples", "real-world"]
+    else:
+        suffix = ["use cases", "\"in the wild\"", "real-world", "examples"]
+    return " ".join([quoted_subject] + suffix).strip()
+
+
+def _rewrite_search_query(intent: str, topic: str, search_query: str, label: str) -> str:
+    if intent == "emerging_use":
+        return _rewrite_emerging_use_search_query(topic, label)
+    return search_query.strip()
+
+
+def _keyword_query(topic: str, core: str, *, intent: str | None = None) -> str:
+    if intent == "emerging_use":
+        return _rewrite_emerging_use_search_query(topic, "primary")
     compounds = query.extract_compound_terms(topic)
     quoted = " ".join(f"\"{term}\"" for term in compounds[:2])
     keywords = [quoted.strip(), core.strip() or topic.strip()]

@@ -16,6 +16,8 @@ What it does:
   - `nDCG@5`
   - source-coverage recall across the judged union pool
 
+The judge is now rubric-aware, not just generic relevance scoring. For example, `emerging_use` topics explicitly reward concrete real-world uses, technical substance, novelty, and high signal-to-noise, while penalising generic launch chatter, off-topic GitHub junk, and flashy-but-thin short-form results.
+
 Recommended usage:
 
 ```bash
@@ -53,3 +55,4 @@ Notes:
 - It also strips `node` from the eval `PATH` and wraps `yt-dlp` with `--ignore-config`, so older revisions do not inherit local browser-cookie config either.
 - `Jaccard` and retention are regression guards, not truth metrics.
 - `Precision@5` and `nDCG@5` are only as good as the judged pool. They help compare revisions, but they are not a substitute for a larger labeled benchmark.
+- The judge returns a final `grade` plus a short rationale and per-dimension scores in the cached judgment JSON. Current metrics still consume the final grade only.

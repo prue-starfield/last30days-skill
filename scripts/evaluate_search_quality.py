@@ -47,6 +47,49 @@ DEFAULT_SEARCH = ""
 DEFAULT_JUDGE_MODEL = "gemini-3.1-flash-lite-preview"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
+QUERY_TYPE_RUBRICS: dict[str, dict[str, Any]] = {
+    "emerging_use": {
+        "focus": "real-world uses in practice, developer experiments, deployed workflows, concrete examples, and technically substantive discussion",
+        "dimensions": [
+            ("topical_relevance", "Is this actually about the topic asked for?"),
+            ("emerging_use_specificity", "Does it show a real example of how people are using it, not just launch chatter or a generic explainer?"),
+            ("technical_substance", "Does it contain meaningful technical detail, implementation evidence, benchmarks, or workflow specifics?"),
+            ("signal_to_noise", "Is it high-signal rather than fluff, junk, or weakly related social chatter?"),
+            ("novelty", "Does it surface an interesting or non-obvious use, experiment, or deployment?"),
+        ],
+        "grade_guidance": [
+            "3 = concrete, high-signal real-world use with technical substance; one of the best results",
+            "2 = clearly relevant and useful, but less concrete, less novel, or less technically rich",
+            "1 = weakly relevant, generic launch/tutorial chatter, shallow synthesis, or noisy result with only a small connection",
+            "0 = off-topic, junk, obvious false positive, or content that does not evidence a real use in practice",
+        ],
+        "source_notes": [
+            "Do not reward a result just because it comes from a flashy source or has engagement",
+            "Penalise off-topic GitHub repos, generic launch coverage, and short-form social clips unless they clearly show a concrete use in practice",
+            "Reward technical discussion threads, code, demos, benchmarks, and grounded synthesis when they directly answer the query",
+        ],
+    },
+}
+
+DEFAULT_JUDGE_RUBRIC = {
+    "focus": "results that best answer the topic with relevant, useful, high-signal information",
+    "dimensions": [
+        ("topical_relevance", "Is this actually about the requested topic?"),
+        ("usefulness", "Would this help a researcher answer the query?"),
+        ("signal_to_noise", "Is it substantive rather than fluff or weakly related chatter?"),
+    ],
+    "grade_guidance": [
+        "3 = highly relevant, useful, and one of the best results",
+        "2 = relevant and useful",
+        "1 = weak or tangential",
+        "0 = off-topic or clearly bad",
+    ],
+    "source_notes": [
+        "Judge the content, not the brand of the source",
+        "Penalise thin, spammy, or weakly related results",
+    ],
+}
+
 
 def stable_item_key(item: dict[str, Any]) -> str:
     return str(item.get("candidate_id") or item.get("url") or item.get("title") or "")
@@ -222,6 +265,7 @@ def call_gemini_judge(api_key: str, model: str, prompt: str) -> dict[str, Any]:
 
 
 def build_judge_prompt(topic: str, query_type: str, items: list[dict[str, Any]]) -> str:
+    rubric = QUERY_TYPE_RUBRICS.get(query_type, DEFAULT_JUDGE_RUBRIC)
     item_lines = []
     for item in items:
         item_lines.append(
@@ -233,24 +277,51 @@ def build_judge_prompt(topic: str, query_type: str, items: list[dict[str, Any]])
                 f"  date: {item.get('date') or 'unknown'}",
             ])
         )
+    dimension_lines = "\n".join(
+        f"- {name}: {description}" for name, description in rubric["dimensions"]
+    )
+    guidance_lines = "\n".join(f"- {line}" for line in rubric["grade_guidance"])
+    source_note_lines = "\n".join(f"- {line}" for line in rubric["source_notes"])
+    dimension_score_fields = ",\n          ".join(
+        f'"{name}": 0' for name, _ in rubric["dimensions"]
+    )
     return f"""
 Judge search-result relevance for a last-30-days research tool.
 
 Topic: {topic}
 Query type: {query_type}
+Evaluation focus: {rubric['focus']}
 
-Score each item on this 0-3 scale:
-- 0 = off-topic or clearly bad
-- 1 = weak or tangential
-- 2 = relevant and useful
-- 3 = highly relevant, one of the best results
+Score each item using this rubric:
+Dimensions:
+{dimension_lines}
+
+Final grade guidance (0-3):
+{guidance_lines}
+
+Source-specific notes:
+{source_note_lines}
 
 Return JSON only:
 {{
   "judgments": [
-    {{"id": "ITEM_ID", "grade": 0}}
+    {{
+      "id": "ITEM_ID",
+      "grade": 0,
+      "rationale": "brief explanation",
+      "dimension_scores": {{
+          {dimension_score_fields}
+      }}
+    }}
   ]
 }}
+
+Rules:
+- Use integer scores only.
+- `grade` must be 0, 1, 2, or 3.
+- `dimension_scores` values must be 0, 1, 2, or 3.
+- Be strict about off-topic, noisy, or weakly connected results.
+- Judge the actual evidence in the item, not the prestige of the source.
 
 Items:
 {chr(10).join(item_lines)}

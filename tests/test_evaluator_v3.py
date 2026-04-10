@@ -113,6 +113,28 @@ class EvaluatorV3Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             evaluator.extract_gemini_text({"candidates": [{"content": {"parts": [{}]}}]})
 
+    def test_build_judge_prompt_uses_query_specific_rubric(self):
+        prompt = evaluator.build_judge_prompt(
+            "how people have been using gemma4 in novel ways",
+            "emerging_use",
+            [{"key": "a", "source": "reddit", "text": "Gemma 4 on Raspberry Pi cluster", "url": "https://example.com", "date": "2026-04-10"}],
+        )
+        self.assertIn("Evaluation focus: real-world uses in practice", prompt)
+        self.assertIn("emerging_use_specificity", prompt)
+        self.assertIn("technical_substance", prompt)
+        self.assertIn("Penalise off-topic GitHub repos", prompt)
+        self.assertIn('"rationale": "brief explanation"', prompt)
+        self.assertIn('"dimension_scores"', prompt)
+
+        generic = evaluator.build_judge_prompt(
+            "explain transformer architecture",
+            "concept",
+            [{"key": "b", "source": "web", "text": "Transformer explainer", "url": "https://example.org", "date": None}],
+        )
+        self.assertIn("Evaluation focus: results that best answer the topic", generic)
+        self.assertIn("usefulness", generic)
+        self.assertNotIn("emerging_use_specificity", generic)
+
     def test_get_judgments_uses_cache_and_skips_when_not_configured(self):
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)
@@ -140,6 +162,42 @@ class EvaluatorV3Tests(unittest.TestCase):
                 gemini_api_key=None,
             )
             self.assertEqual({}, skipped)
+
+    def test_get_judgments_accepts_rich_judge_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            with mock.patch.object(
+                evaluator,
+                "call_gemini_judge",
+                return_value={
+                    "judgments": [
+                        {
+                            "id": "a",
+                            "grade": 3,
+                            "rationale": "Concrete real-world Gemma workflow.",
+                            "dimension_scores": {
+                                "topical_relevance": 3,
+                                "emerging_use_specificity": 3,
+                                "technical_substance": 2,
+                                "signal_to_noise": 3,
+                                "novelty": 2,
+                            },
+                        }
+                    ]
+                },
+            ):
+                result = evaluator.get_judgments(
+                    output_dir=output_dir,
+                    slug="gemma4",
+                    topic="how people have been using gemma4 in novel ways",
+                    query_type="emerging_use",
+                    items=[{"key": "a", "source": "reddit", "text": "workflow", "url": "https://example.com", "date": "2026-04-10"}],
+                    judge_model="gemini-3.1-flash-lite-preview",
+                    gemini_api_key="key",
+                )
+            self.assertEqual({"a": 3}, result)
+            cached = json.loads((output_dir / "judgments" / "gemma4.json").read_text())
+            self.assertEqual("Concrete real-world Gemma workflow.", cached["judgments"][0]["rationale"])
 
     def test_create_eval_env_and_run_last30days(self):
         with mock.patch.object(evaluator.envlib, "get_config", return_value={"OPENAI_API_KEY": "config-openai"}):

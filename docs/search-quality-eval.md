@@ -5,7 +5,8 @@
 What it does:
 
 - runs a baseline revision (default `origin/main`) against a candidate checkout
-- evaluates the fixed 5 reviewer topics by default
+- evaluates the shared topic fixture at `fixtures/eval_topics.json` by default
+- the first shipped regression case is `how people have been using gemma4 in novel ways` (`emerging_use`)
 - computes deterministic stability metrics:
   - `Jaccard` overlap vs baseline
   - retention vs baseline
@@ -25,11 +26,17 @@ Useful flags:
 
 ```bash
 uv run python scripts/evaluate_search_quality.py \
-  --baseline-rev origin/main \
-  --candidate-rev HEAD \
-  --no-default-topics \
-  --topic "cursor IDE pricing" \
-  --per-source-limit 5
+  --baseline HEAD~1 \
+  --candidate WORKTREE \
+  --topics-file fixtures/eval_topics.json
+```
+
+To run an alternate topic set, point `--topics-file` at another JSON file with rows shaped like:
+
+```json
+[
+  {"topic": "how people have been using gemma4 in novel ways", "query_type": "emerging_use"}
+]
 ```
 
 Gemini configuration:

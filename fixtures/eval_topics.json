@@ -1,0 +1,35 @@
+[
+  {
+    "topic": "how people have been using gemma4 in novel ways",
+    "query_type": "emerging_use",
+    "notes": "Regression case for planner/query-construction slop. Should favour technical discussion sources over short-form visual noise."
+  },
+  {
+    "topic": "nano banana pro prompting",
+    "query_type": "product"
+  },
+  {
+    "topic": "codex vs claude code",
+    "query_type": "comparison"
+  },
+  {
+    "topic": "openclaw vs nanoclaw vs ironclaw",
+    "query_type": "comparison"
+  },
+  {
+    "topic": "anthropic odds",
+    "query_type": "prediction"
+  },
+  {
+    "topic": "kanye west",
+    "query_type": "breaking_news"
+  },
+  {
+    "topic": "remotion animations for Claude Code",
+    "query_type": "how_to"
+  },
+  {
+    "topic": "explain transformer architecture",
+    "query_type": "concept"
+  }
+]

@@ -30,10 +30,13 @@ def _load_queries() -> list[tuple[str, str]]:
         rows = json.loads(EVAL_TOPICS_FILE.read_text())
         return [(row["topic"], row["query_type"]) for row in rows]
     return [
+        ("how people have been using gemma4 in novel ways", "emerging_use"),
+        ("nano banana pro prompting", "product"),
+        ("codex vs claude code", "comparison"),
         ("openclaw vs nanoclaw vs ironclaw", "comparison"),
-        ("how to deploy on Fly.io", "how_to"),
+        ("anthropic odds", "prediction"),
         ("kanye west", "breaking_news"),
-        ("odds of recession", "prediction"),
+        ("remotion animations for Claude Code", "how_to"),
         ("explain transformer architecture", "concept"),
     ]
 

@@ -143,7 +143,19 @@ class EvaluatorV3Tests(unittest.TestCase):
 
     def test_create_eval_env_and_run_last30days(self):
         with mock.patch.object(evaluator.envlib, "get_config", return_value={"OPENAI_API_KEY": "config-openai"}):
-            with mock.patch.dict("os.environ", {"PATH": "/bin", "GOOGLE_API_KEY": "env-google"}, clear=False):
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "PATH": "/bin",
+                    "GOOGLE_API_KEY": "env-google",
+                    "OPENAI_API_KEY": "",
+                    "GEMINI_API_KEY": "",
+                    "GOOGLE_GENAI_API_KEY": "",
+                },
+                clear=False,
+            ):
+                for key in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENAI_API_KEY"):
+                    os.environ.pop(key, None)
                 created = evaluator.create_eval_env()
         self.assertEqual("/bin", created["PATH"])
         self.assertEqual("env-google", created["GOOGLE_API_KEY"])
@@ -201,6 +213,14 @@ class EvaluatorV3Tests(unittest.TestCase):
             metrics = json.loads((tmp_path / "metrics.json").read_text())
             self.assertIn("| topic a | 0.10 | 0.30 |", summary)
             self.assertEqual("HEAD~1", metrics["baseline"])
+
+    def test_repo_eval_topics_fixture_exists_and_starts_with_gemma_regression(self):
+        fixture_path = evaluator.REPO_ROOT / "fixtures" / "eval_topics.json"
+        self.assertTrue(fixture_path.exists())
+        rows = json.loads(fixture_path.read_text())
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertEqual("how people have been using gemma4 in novel ways", rows[0]["topic"])
+        self.assertEqual("emerging_use", rows[0]["query_type"])
 
 
 if __name__ == "__main__":

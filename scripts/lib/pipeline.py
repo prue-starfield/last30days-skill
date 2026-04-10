@@ -242,6 +242,7 @@ def run(
                     "github", project_items, from_date, to_date,
                     freshness_mode=plan.freshness_mode,
                     ranking_query=f"What are {', '.join(github_repos)} doing on GitHub?",
+                    intent=plan.intent,
                 )
                 primary_label = plan.subqueries[0].label if plan.subqueries else "primary"
                 bundle.add_items(primary_label, "github", normalized)
@@ -262,6 +263,7 @@ def run(
                     "github", person_items, from_date, to_date,
                     freshness_mode=plan.freshness_mode,
                     ranking_query=f"What is @{github_user} doing on GitHub?",
+                    intent=plan.intent,
                 )
                 # Use the first subquery's label so RRF can look up the weight
                 primary_label = plan.subqueries[0].label if plan.subqueries else "primary"
@@ -359,6 +361,7 @@ def run(
                 source, raw_items, from_date, to_date,
                 freshness_mode=plan.freshness_mode,
                 ranking_query=subquery.ranking_query,
+                intent=plan.intent,
             )
             normalized = normalized[: settings["per_stream_limit"]]
             bundle.add_items(subquery.label, source, normalized)
@@ -458,6 +461,7 @@ def _normalize_score_dedupe(
     to_date: str,
     freshness_mode: str,
     ranking_query: str,
+    intent: str | None = None,
 ) -> list[schema.SourceItem]:
     """Normalize, annotate, prune, dedupe, and extract snippets for a batch of raw items."""
     normalized = normalize.normalize_source_items(
@@ -465,7 +469,18 @@ def _normalize_score_dedupe(
         freshness_mode=freshness_mode,
     )
     normalized = signals.annotate_stream(normalized, ranking_query, freshness_mode)
-    normalized = signals.prune_low_relevance(normalized)
+    minimum = 0.15
+    fallback_if_empty = True
+    if intent == "emerging_use" and source == "reddit":
+        minimum = 0.20
+        fallback_if_empty = False
+    elif intent == "emerging_use" and source == "github":
+        minimum = 0.18
+    normalized = signals.prune_low_relevance(
+        normalized,
+        minimum=minimum,
+        fallback_if_empty=fallback_if_empty,
+    )
     normalized = dedupe.dedupe_items(normalized)
     for item in normalized:
         item.snippet = snippet.extract_best_snippet(item, ranking_query)
@@ -623,6 +638,7 @@ def _run_supplemental_searches(
                 "x", raw_items, from_date, to_date,
                 freshness_mode=plan.freshness_mode,
                 ranking_query=ranking_query,
+                intent=plan.intent,
             )
             # Deduplicate against Phase 1 URLs
             normalized = [item for item in normalized if item.url not in existing_urls]
@@ -648,6 +664,7 @@ def _run_supplemental_searches(
                 "x", raw_items, from_date, to_date,
                 freshness_mode=plan.freshness_mode,
                 ranking_query=ranking_query,
+                intent=plan.intent,
             )
             # Deduplicate against all existing URLs (Phase 1 + primary handles)
             normalized = [item for item in normalized if item.url not in existing_urls]
@@ -746,6 +763,7 @@ def _retry_thin_sources(
             to_date,
             freshness_mode=plan.freshness_mode,
             ranking_query=retry_subquery.ranking_query,
+            intent=plan.intent,
         )
         return source, normalized[:settings["per_stream_limit"]]
 

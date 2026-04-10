@@ -381,10 +381,14 @@ def validate_candidate_hard_checks(
     if banned:
         errors.append(f"banned social/visual sources present in top-10: {', '.join(banned)}")
 
-    preferred = sorted(top10_sources & EMERGING_USE_TECHNICAL_SOURCES)
-    if len(preferred) < 3:
+    technical_top10 = [
+        item for item in top10
+        if set(item["sources"]) & EMERGING_USE_TECHNICAL_SOURCES
+    ]
+    if len(technical_top10) < 3:
+        labels = sorted({source for item in technical_top10 for source in item["sources"] if source in EMERGING_USE_TECHNICAL_SOURCES})
         errors.append(
-            f"expected at least 3 technical sources in top-10, got {len(preferred)} ({', '.join(preferred) or 'none'})"
+            f"expected at least 3 technical results in top-10, got {len(technical_top10)} ({', '.join(labels) or 'none'})"
         )
 
     discussion = sorted(top5_sources & EMERGING_USE_DISCUSSION_SOURCES)

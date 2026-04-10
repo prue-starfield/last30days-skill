@@ -140,6 +140,18 @@ class SignalsV3Tests(unittest.TestCase):
         pruned = signals.prune_low_relevance([weak], minimum=0.1)
         self.assertEqual(["weak"], [item.item_id for item in pruned])
 
+    def test_prune_low_relevance_can_drop_all_when_fallback_disabled(self):
+        weak = schema.SourceItem(
+            item_id="weak",
+            source="reddit",
+            title="Generic post",
+            body="Generic body.",
+            url="https://example.com/weak",
+            local_relevance=0.02,
+        )
+        pruned = signals.prune_low_relevance([weak], minimum=0.1, fallback_if_empty=False)
+        self.assertEqual([], pruned)
+
 
     # -- Iteration 1: HN engagement bug --
 

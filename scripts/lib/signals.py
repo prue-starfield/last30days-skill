@@ -194,6 +194,8 @@ def _passes_engagement_floor(item: schema.SourceItem, sole_source: bool) -> bool
 def prune_low_relevance(
     items: list[schema.SourceItem],
     minimum: float = 0.15,
+    *,
+    fallback_if_empty: bool = True,
 ) -> list[schema.SourceItem]:
     """Drop weak lexical matches when stronger evidence exists.
 
@@ -202,6 +204,11 @@ def prune_low_relevance(
 
     TikTok and Instagram items with fewer than 1000 views are pruned
     (unless they are the only source represented in the batch).
+
+    When fallback_if_empty is False, a source can be dropped entirely if every
+    candidate in that batch is a weak lexical match. This is useful for
+    precision-sensitive intents where keeping obvious junk is worse than having
+    no evidence from that source.
     """
     sources_present = {item.source for item in items}
 
@@ -218,4 +225,6 @@ def prune_low_relevance(
         return True
 
     filtered = [item for item in items if passes(item)]
-    return filtered or items
+    if filtered:
+        return filtered
+    return items if fallback_if_empty else []

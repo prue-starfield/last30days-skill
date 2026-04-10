@@ -150,6 +150,42 @@ class PlannerV3Tests(unittest.TestCase):
         intent = planner._infer_intent("2026 March Madness")
         self.assertEqual("breaking_news", intent)
 
+    def test_emerging_use_infers_for_novel_usage_queries(self):
+        intent = planner._infer_intent("how people have been using Gemma 4 in novel ways")
+        self.assertEqual("emerging_use", intent)
+
+    def test_emerging_use_keeps_technical_sources_and_excludes_shortform(self):
+        raw = {
+            "intent": "emerging_use",
+            "freshness_mode": "balanced_recent",
+            "cluster_mode": "story",
+            "source_weights": {"reddit": 0.6, "x": 0.4},
+            "subqueries": [
+                {
+                    "label": "primary",
+                    "search_query": "Gemma 4 novel use cases",
+                    "ranking_query": "How are people using Gemma 4 in novel ways?",
+                    "sources": ["reddit", "x"],
+                    "weight": 1.0,
+                }
+            ],
+        }
+        plan = planner._sanitize_plan(
+            raw,
+            "how people have been using Gemma 4 in novel ways",
+            ["reddit", "x", "tiktok", "instagram", "youtube", "hackernews", "github", "grounding"],
+            None,
+            "default",
+        )
+        self.assertEqual("emerging_use", plan.intent)
+        sources = set(plan.subqueries[0].sources)
+        self.assertIn("reddit", sources)
+        self.assertIn("x", sources)
+        self.assertIn("github", plan.source_weights)
+        self.assertIn("hackernews", plan.source_weights)
+        self.assertNotIn("tiktok", plan.source_weights)
+        self.assertNotIn("instagram", plan.source_weights)
+
     def test_factual_plan_has_at_most_2_subqueries(self):
         plan = planner.plan_query(
             topic="who acquired Wiz",

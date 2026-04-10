@@ -12,6 +12,7 @@ ALLOWED_INTENTS = {
     "product",
     "concept",
     "opinion",
+    "emerging_use",
     "how_to",
     "comparison",
     "breaking_news",
@@ -23,6 +24,7 @@ QUICK_SOURCE_PRIORITY = {
     "product": ["youtube", "reddit", "x", "tiktok"],
     "concept": ["hackernews", "reddit", "x", "youtube"],
     "opinion": ["reddit", "x", "youtube", "hackernews"],
+    "emerging_use": ["reddit", "x", "hackernews", "github", "youtube", "grounding"],
     "how_to": ["youtube", "reddit", "x", "hackernews"],
     "comparison": ["reddit", "x", "hackernews", "youtube"],
     "breaking_news": ["x", "reddit", "hackernews", "youtube", "polymarket"],
@@ -33,6 +35,7 @@ SOURCE_PRIORITY = {
     "product": ["youtube", "reddit", "x", "tiktok", "hackernews"],
     "concept": ["hackernews", "reddit", "x", "youtube"],
     "opinion": ["reddit", "x", "youtube", "hackernews"],
+    "emerging_use": ["reddit", "x", "hackernews", "github", "youtube", "grounding"],
     "how_to": ["youtube", "reddit", "x", "hackernews"],
     "comparison": ["reddit", "x", "hackernews", "youtube"],
     "breaking_news": ["x", "reddit", "hackernews", "youtube", "polymarket"],
@@ -44,6 +47,7 @@ SOURCE_LIMITS = {
         "product": 2,
         "concept": 2,
         "opinion": 2,
+        "emerging_use": 2,
         "how_to": 2,
         "comparison": 2,
         "breaking_news": 2,
@@ -55,6 +59,7 @@ SOURCE_LIMITS = {
 }
 INTENT_SOURCE_EXCLUSIONS: dict[str, set[str]] = {
     "concept": {"polymarket"},
+    "emerging_use": {"polymarket", "tiktok", "instagram", "threads", "pinterest", "xiaohongshu"},
     "how_to": {"polymarket"},
 }
 SOURCE_CAPABILITIES = {
@@ -74,6 +79,7 @@ SOURCE_CAPABILITIES = {
 }
 DEFAULT_INTENT_CAPABILITIES = {
     "comparison": {"discussion", "video", "web", "reference", "social", "link", "market"},
+    "emerging_use": {"discussion", "video_longform", "web", "reference", "link"},
     "how_to": {"discussion", "video", "web", "reference", "link"},
 }
 
@@ -134,7 +140,7 @@ Requested sources: {requested}
 
 Return JSON only with this shape:
 {{
-  "intent": "factual|product|concept|opinion|how_to|comparison|breaking_news|prediction",
+  "intent": "factual|product|concept|opinion|emerging_use|how_to|comparison|breaking_news|prediction",
   "freshness_mode": "strict_recent|balanced_recent|evergreen_ok",
   "cluster_mode": "none|story|workflow|market|debate",
   "source_weights": {{"source_name": 0.0}},
@@ -157,6 +163,7 @@ Rules:
 - use cluster_mode=none for factual or many how-to queries
 - use strict_recent for breaking news and most predictions
 - use debate for comparison/opinion, market for prediction, workflow for how_to, story for breaking_news
+- use emerging_use for questions about how people are using something in practice, novel ways, use cases, or in-the-wild adoption
 - search_query should be concise and keyword-heavy
 - ranking_query should read like a natural-language question
 - preserve exact proper nouns and entity strings from the topic
@@ -192,12 +199,12 @@ def _sanitize_plan(
         source_weights = {source: weight for source, weight in source_weights.items() if source in requested}
     if not source_weights:
         source_weights = _default_source_weights(_infer_intent(topic), eligible_sources)
-    # Ensure all eligible sources are available for subqueries. The LLM may
-    # assign high weights to its preferred sources, but omitted sources still
-    # participate with base weight so retrieval can overfetch and let fusion
-    # decide quality.
-    for source in eligible_sources:
-        source_weights.setdefault(source, 1.0)
+    # Ensure all eligible sources are available for subqueries for broad intents.
+    # For emerging_use, preserve a narrower source mix so short-form/visual
+    # sources do not get silently reintroduced after planning.
+    if intent_hint != "emerging_use":
+        for source in eligible_sources:
+            source_weights.setdefault(source, 1.0)
     if intent_hint in DEFAULT_INTENT_CAPABILITIES and depth != "quick":
         for source in _default_sources_for_intent(intent_hint, eligible_sources):
             source_weights.setdefault(source, 1.0)
@@ -404,6 +411,16 @@ def _infer_intent(topic: str) -> str:
         return "comparison"
     if re.search(r"\b(odds|predict|prediction|forecast|chance|probability|will .* win)\b", text):
         return "prediction"
+    if re.search(
+        r"\b(how (people|developers|teams|users) (are )?using|"
+        r"what are people doing with|"
+        r"novel ways|"
+        r"use cases|"
+        r"in the wild|"
+        r"creative applications)\b",
+        text,
+    ):
+        return "emerging_use"
     if re.search(r"\b(how to|tutorial|guide|setup|step by step|deploy|install)\b", text):
         return "how_to"
     if re.search(r"\b(what is|what are|who is|who acquired|when did|parameter count|release date)\b", text):
@@ -426,6 +443,8 @@ def _default_freshness(intent: str) -> str:
         return "strict_recent"
     if intent in {"concept", "how_to"}:
         return "evergreen_ok"
+    if intent == "emerging_use":
+        return "balanced_recent"
     return "balanced_recent"
 
 
@@ -433,6 +452,7 @@ def _default_cluster_mode(intent: str) -> str:
     return {
         "breaking_news": "story",
         "comparison": "debate",
+        "emerging_use": "story",
         "opinion": "debate",
         "prediction": "market",
         "how_to": "workflow",
@@ -450,6 +470,10 @@ def _default_source_weights(intent: str, sources: list[str]) -> dict[str, float]
                 base[source] += bonus
     elif intent == "breaking_news":
         for source, bonus in {"x": 1.5, "reddit": 1.3, "hackernews": 0.8}.items():
+            if source in base:
+                base[source] += bonus
+    elif intent == "emerging_use":
+        for source, bonus in {"reddit": 1.5, "x": 1.3, "hackernews": 1.1, "github": 1.0, "youtube": 0.6, "grounding": 0.5}.items():
             if source in base:
                 base[source] += bonus
     elif intent == "how_to":

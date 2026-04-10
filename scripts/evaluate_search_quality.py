@@ -90,6 +90,11 @@ DEFAULT_JUDGE_RUBRIC = {
     ],
 }
 
+GEMMA_EMERGING_USE_TOPIC = "how people have been using gemma4 in novel ways"
+EMERGING_USE_BANNED_SOURCES = {"tiktok", "instagram", "threads", "pinterest", "xiaohongshu"}
+EMERGING_USE_DISCUSSION_SOURCES = {"reddit", "x", "hackernews"}
+EMERGING_USE_TECHNICAL_SOURCES = {"reddit", "x", "hackernews", "github", "youtube", "grounding", "perplexity"}
+
 
 def stable_item_key(item: dict[str, Any]) -> str:
     return str(item.get("candidate_id") or item.get("url") or item.get("title") or "")
@@ -350,6 +355,54 @@ def get_judgments(
     return {row["id"]: int(row["grade"]) for row in payload.get("judgments") or []}
 
 
+def validate_candidate_hard_checks(
+    *,
+    topic: str,
+    query_type: str,
+    candidate_report: dict[str, Any],
+    judgments: dict[str, int],
+    limit: int,
+) -> list[str]:
+    if topic != GEMMA_EMERGING_USE_TOPIC or query_type != "emerging_use":
+        return []
+
+    errors: list[str] = []
+    intent = str((candidate_report.get("query_plan") or {}).get("intent") or "")
+    if intent != "emerging_use":
+        errors.append(f"expected intent emerging_use, got {intent or 'missing'}")
+
+    ranking = build_ranked_items(candidate_report, limit)
+    top5 = ranking[:5]
+    top10 = ranking[:10]
+    top5_sources = {source for item in top5 for source in item["sources"]}
+    top10_sources = {source for item in top10 for source in item["sources"]}
+
+    banned = sorted(top10_sources & EMERGING_USE_BANNED_SOURCES)
+    if banned:
+        errors.append(f"banned social/visual sources present in top-10: {', '.join(banned)}")
+
+    preferred = sorted(top10_sources & EMERGING_USE_TECHNICAL_SOURCES)
+    if len(preferred) < 3:
+        errors.append(
+            f"expected at least 3 technical sources in top-10, got {len(preferred)} ({', '.join(preferred) or 'none'})"
+        )
+
+    discussion = sorted(top5_sources & EMERGING_USE_DISCUSSION_SOURCES)
+    if not discussion:
+        errors.append("expected at least one discussion source (reddit/x/hackernews) in top-5")
+
+    if judgments:
+        strong_top5 = sum(
+            1
+            for item in top5
+            if judgments.get(item["key"], 0) >= 2 and set(item["sources"]) & EMERGING_USE_TECHNICAL_SOURCES
+        )
+        if strong_top5 < 2:
+            errors.append(f"expected at least 2 judged-good technical results in top-5, got {strong_top5}")
+
+    return errors
+
+
 def create_eval_env() -> dict[str, str]:
     config = envlib.get_config()
     passthrough = {
@@ -604,7 +657,18 @@ def main() -> int:
                     judge_model=args.judge_model,
                     gemini_api_key=gemini_api_key,
                 )
-                summaries.append(summarize_topic(topic, query_type, baseline_report, candidate_report, judgments, judged_pool, args.limit))
+                summary = summarize_topic(topic, query_type, baseline_report, candidate_report, judgments, judged_pool, args.limit)
+                check_errors = validate_candidate_hard_checks(
+                    topic=topic,
+                    query_type=query_type,
+                    candidate_report=candidate_report,
+                    judgments=judgments,
+                    limit=args.limit,
+                )
+                summary["candidate_checks"] = {"passed": not check_errors, "errors": check_errors}
+                summaries.append(summary)
+                if check_errors:
+                    failures.append({"topic": topic, "query_type": query_type, "error": "; ".join(check_errors)})
             except Exception as exc:
                 failures.append({"topic": topic, "query_type": query_type, "error": str(exc)})
         write_failure_summary(output_dir, args.baseline, args.candidate, summaries, failures)

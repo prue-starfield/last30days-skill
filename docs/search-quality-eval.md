@@ -18,6 +18,13 @@ What it does:
 
 The judge is now rubric-aware, not just generic relevance scoring. For example, `emerging_use` topics explicitly reward concrete real-world uses, technical substance, novelty, and high signal-to-noise, while penalising generic launch chatter, off-topic GitHub junk, and flashy-but-thin short-form results.
 
+The Gemma 4 emerging-use regression case also has deterministic hard checks on the candidate revision. Today those checks enforce:
+- intent must stay `emerging_use`
+- banned short-form social/visual sources must stay out of the top-10
+- at least one discussion source (`reddit`, `x`, or `hackernews`) must appear in the top-5
+- at least three technical sources must appear in the top-10
+- if judge grades are available, at least two top-5 technical results must score `>= 2`
+
 Recommended usage:
 
 ```bash

@@ -113,6 +113,64 @@ class EvaluatorV3Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             evaluator.extract_gemini_text({"candidates": [{"content": {"parts": [{}]}}]})
 
+    def _make_candidate_report(self, *, intent="emerging_use", ranked_sources=None):
+        ranked_sources = ranked_sources or ["x", "reddit", "github", "grounding", "youtube"]
+        ranked_candidates = []
+        for index, source in enumerate(ranked_sources, start=1):
+            ranked_candidates.append({
+                "candidate_id": f"c{index}",
+                "item_id": f"i{index}",
+                "source": source,
+                "sources": [source],
+                "title": f"Result from {source}",
+                "url": f"https://example.com/{source}/{index}",
+                "snippet": "Snippet",
+                "subquery_labels": ["primary"],
+                "native_ranks": {f"primary:{source}": index},
+                "local_relevance": 0.8,
+                "freshness": 90,
+                "engagement": None,
+                "source_quality": 1.0,
+                "rrf_score": 0.02,
+                "rerank_score": 80 - index,
+                "final_score": 80 - index,
+                "source_items": [
+                    {"item_id": f"i{index}", "source": source, "title": f"Result from {source}", "body": "Body", "url": f"https://example.com/{source}/{index}", "published_at": "2026-04-10"}
+                ],
+            })
+        return {
+            "topic": evaluator.GEMMA_EMERGING_USE_TOPIC,
+            "range_from": "2026-03-27",
+            "range_to": "2026-04-10",
+            "generated_at": "2026-04-10T00:00:00+00:00",
+            "provider_runtime": {
+                "reasoning_provider": "gemini",
+                "planner_model": "gemini-3.1-flash-lite-preview",
+                "rerank_model": "gemini-3.1-flash-lite-preview",
+            },
+            "query_plan": {
+                "intent": intent,
+                "freshness_mode": "balanced_recent",
+                "cluster_mode": "story",
+                "raw_topic": evaluator.GEMMA_EMERGING_USE_TOPIC,
+                "subqueries": [
+                    {
+                        "label": "primary",
+                        "search_query": evaluator.GEMMA_EMERGING_USE_TOPIC,
+                        "ranking_query": evaluator.GEMMA_EMERGING_USE_TOPIC,
+                        "sources": ranked_sources,
+                        "weight": 1.0,
+                    }
+                ],
+                "source_weights": {source: 1.0 for source in ranked_sources},
+                "notes": [],
+            },
+            "clusters": [],
+            "ranked_candidates": ranked_candidates,
+            "items_by_source": {},
+            "errors_by_source": {},
+        }
+
     def test_build_judge_prompt_uses_query_specific_rubric(self):
         prompt = evaluator.build_judge_prompt(
             "how people have been using gemma4 in novel ways",
@@ -198,6 +256,36 @@ class EvaluatorV3Tests(unittest.TestCase):
             self.assertEqual({"a": 3}, result)
             cached = json.loads((output_dir / "judgments" / "gemma4.json").read_text())
             self.assertEqual("Concrete real-world Gemma workflow.", cached["judgments"][0]["rationale"])
+
+    def test_validate_candidate_hard_checks_accepts_good_gemma_mix(self):
+        report = self._make_candidate_report(ranked_sources=["x", "reddit", "github", "grounding", "youtube"])
+        judgments = {f"c{i}": 3 for i in range(1, 6)}
+        errors = evaluator.validate_candidate_hard_checks(
+            topic=evaluator.GEMMA_EMERGING_USE_TOPIC,
+            query_type="emerging_use",
+            candidate_report=report,
+            judgments=judgments,
+            limit=10,
+        )
+        self.assertEqual([], errors)
+
+    def test_validate_candidate_hard_checks_rejects_bad_gemma_mix(self):
+        report = self._make_candidate_report(
+            intent="how_to",
+            ranked_sources=["tiktok", "instagram", "perplexity", "grounding", "youtube"],
+        )
+        judgments = {f"c{i}": 1 for i in range(1, 6)}
+        errors = evaluator.validate_candidate_hard_checks(
+            topic=evaluator.GEMMA_EMERGING_USE_TOPIC,
+            query_type="emerging_use",
+            candidate_report=report,
+            judgments=judgments,
+            limit=10,
+        )
+        self.assertTrue(any("expected intent emerging_use" in error for error in errors))
+        self.assertTrue(any("banned social/visual sources present in top-10" in error for error in errors))
+        self.assertTrue(any("discussion source" in error for error in errors))
+        self.assertTrue(any("judged-good technical results" in error for error in errors))
 
     def test_create_eval_env_and_run_last30days(self):
         with mock.patch.object(evaluator.envlib, "get_config", return_value={"OPENAI_API_KEY": "config-openai"}):
